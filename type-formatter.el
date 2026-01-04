@@ -113,32 +113,28 @@ If COMPACT is non-nil, put first entry on same line as opening brace."
     (if compact
         ;; Compact format: {key val,
         (let ((first (car entries))
-              (rest (cdr entries)))
+              (rest (cdr entries))
+              (count (length entries)))
           ;; Opening brace with first entry
-          (push (format "%s{%s %s%s"
-                       base
-                       (car first)
-                       (cdr first)
-                       (if rest "," ""))
-               lines)
-
-          ;; Remaining entries
-          (let ((remaining (length rest)))
-            (dolist (entry rest)
-              (setq remaining (1- remaining))
-              (push (format "%s%s %s%s"
-                           item
-                           (car entry)
-                           (cdr entry)
-                           (if (> remaining 0) "," ""))
-                   lines)))
-
-          ;; Closing brace
-          (push (concat base "}") lines))
+          (if (= count 1)
+              ;; Single entry: {key val}
+              (push (format "%s{%s %s}" base (car first) (cdr first)) lines)
+            ;; Multiple entries
+            (progn
+              (push (format "%s{%s %s," base (car first) (cdr first)) lines)
+              ;; Remaining entries (last one gets })
+              (let ((remaining (length rest)))
+                (dolist (entry rest)
+                  (setq remaining (1- remaining))
+                  (push (format "%s%s %s%s"
+                               item
+                               (car entry)
+                               (cdr entry)
+                               (if (> remaining 0) "," "}"))
+                       lines))))))
 
       ;; Standard format: { on own line
       (push (concat base "{") lines)
-
       (let ((remaining (length entries)))
         (dolist (entry entries)
           (setq remaining (1- remaining))
@@ -146,10 +142,8 @@ If COMPACT is non-nil, put first entry on same line as opening brace."
                        item
                        (car entry)
                        (cdr entry)
-                       (if (> remaining 0) "," ""))
-               lines)))
-
-      (push (concat base "}") lines))
+                       (if (> remaining 0) "," "}"))
+               lines))))
 
     (mapconcat #'identity (nreverse lines) "\n")))
 

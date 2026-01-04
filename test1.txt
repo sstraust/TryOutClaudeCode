@@ -1,0 +1,8 @@
+;; Test input 1: Simple nested map from screenshot
+{:deft.deft-test/side1 1,
+    :deft.deft-test/side2 3,
+    :deft.deft-test/pos {
+        :deft.deft-test/x 1,
+        :deft.deft-test/y 2,
+        :type :deft.deft-test/Position},
+    :type :deft.deft-test/Rectangle}

@@ -1,0 +1,4 @@
+;; Test input 3: Map without :type
+{:a 1,
+    :b 2,
+    :c 3}

@@ -1,6 +1,6 @@
 # CIDER Format Maps
 
-Formats Clojure maps in CIDER output when using `C-u C-x C-e` (insert at point).
+Formats Clojure maps in CIDER output with `:type` keys first and column-aligned indentation.
 
 ## Installation
 
@@ -13,37 +13,41 @@ Add to your `init.el`:
 
 ## Usage
 
-- `C-x C-e` - Normal evaluation, shows result in overlay (not formatted)
+- `C-x C-e` - Normal evaluation (no formatting)
 - `C-u C-x C-e` - Insert result at point (formatted if it's a map)
+
+## Features
+
+- **:type keys first** - Automatically moves `:type` keys to the beginning of maps
+- **Column alignment** - Nested content aligns with the column after `{`
+- **Recursive** - Formats nested maps properly
+- **Non-invasive** - Only formats when using `C-u C-x C-e`
 
 ## Example
 
-When you use `C-u C-x C-e` on a map expression:
-
 **Before:**
 ```clojure
-{:a 1, :b 2}
-;; => {:deft.deft-test/side1 1, :deft.deft-test/side2 3, :deft.deft-test/pos {:deft.deft-test/x 1, :deft.deft-test/y 2, :type :deft.deft-test/Position}, :type :deft.deft-test/Rectangle}
+{:side1 1, :side2 3, :pos {:x 1, :y 2, :type :Position}, :type :Rectangle}
 ```
 
-**After:**
+**After (C-u C-x C-e):**
 ```clojure
-{:a 1, :b 2}
-;; => {
-;;   :deft.deft-test/side1 1,
-;;   :deft.deft-test/side2 3,
-;;   :deft.deft-test/pos {
-;;     :deft.deft-test/x 1,
-;;     :deft.deft-test/y 2,
-;;     :type :deft.deft-test/Position},
-;;   :type :deft.deft-test/Rectangle}
+=> {:type :Rectangle,
+    :pos {:type :Position,
+          :x 1,
+          :y 2},
+    :side1 1,
+    :side2 3}
 ```
 
-Note: Indentation aligns with the `=> ` prefix.
+See `DEMO.md` for more examples.
 
 ## How It Works
 
-Advises CIDER to format maps only when inserting into buffer (C-u prefix). Adds newlines after commas with proper indentation based on nesting depth and aligns with the `=> ` prefix.
+1. Parses the map into key-value pairs
+2. Sorts entries (`:type` keys first)
+3. Formats with column-aware indentation
+4. Recursively formats nested maps
 
 ## Disable
 

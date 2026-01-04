@@ -9,93 +9,90 @@
   "Format map string STR with :type keys first and aligned indentation.
 PREFIX-LENGTH is the length of any prefix like '=>' to align with."
   (if (and (stringp str) (string-match-p "^{.*}$" str))
-      (with-temp-buffer
-        (insert str)
-        (goto-char (point-min))
-        (cider-format-map--format-region (point-min) (point-max) prefix-length)
-        (buffer-string))
+      (cider-format-map--format-string str prefix-length)
     str))
 
-(defun cider-format-map--format-region (start end base-indent)
-  "Format map in region from START to END with BASE-INDENT."
-  (goto-char start)
-  (when (looking-at "{")
-    (let* ((map-start (point))
-           (entries (cider-format-map--parse-map-entries))
-           (open-brace-col (+ base-indent (current-column))))
-      (when entries
-        ;; Delete the old map content (keep braces)
-        (delete-region (1+ map-start) (1- (point)))
-        (goto-char (1+ map-start))
+(defun cider-format-map--format-string (str base-indent)
+  "Format map STR with BASE-INDENT."
+  (let ((entries (cider-format-map--parse-map str)))
+    (if (not entries)
+        str
+      ;; Separate :type entries from others, preserving order
+      (let* ((type-entries (seq-filter (lambda (e) (string-prefix-p ":type" (car e))) entries))
+             (other-entries (seq-filter (lambda (e) (not (string-prefix-p ":type" (car e)))) entries))
+             (sorted-entries (append type-entries other-entries))
+             (col (1+ base-indent))
+             (result '("{")))
 
-        ;; Sort entries: :type first, then others
-        (setq entries (sort entries
-                           (lambda (a b)
-                             (let ((a-type (string-prefix-p ":type" (car a)))
-                                   (b-type (string-prefix-p ":type" (car b))))
-                               (cond
-                                ((and a-type (not b-type)) t)
-                                ((and b-type (not a-type)) nil)
-                                (t nil))))))
-
-        ;; Insert formatted entries
+        ;; Format each entry
         (let ((first t))
-          (dolist (entry entries)
+          (dolist (entry sorted-entries)
             (unless first
-              (insert ",\n" (make-string open-brace-col ?\s)))
+              (push ",\n" result)
+              (push (make-string col ?\s) result))
             (setq first nil)
-            (insert (car entry) " " (cdr entry))))))))
 
-(defun cider-format-map--parse-map-entries ()
-  "Parse map entries from current position. Returns list of (key . value) strings."
-  (let ((entries nil)
-        (start (point)))
-    (forward-char 1)  ; Skip opening {
-    (skip-chars-forward " \t\n")
+            (let* ((key (car entry))
+                   (val (cdr entry))
+                   ;; Recursively format nested maps
+                   (formatted-val (if (string-prefix-p "{" val)
+                                      (cider-format-map--format-string val (+ col (length key) 1))
+                                    val)))
+              (push key result)
+              (push " " result)
+              (push formatted-val result))))
 
-    (while (and (not (eobp)) (not (looking-at "}")))
-      (let* ((key-start (point))
-             (key (cider-format-map--read-token))
-             (val-start (point))
-             (val (cider-format-map--read-value)))
-        (when (and key val)
-          (push (cons key val) entries))
+        (push "}" result)
+        (apply #'concat (nreverse result))))))
 
-        ;; Skip comma and whitespace
-        (skip-chars-forward " \t\n")
-        (when (looking-at ",")
-          (forward-char 1)
-          (skip-chars-forward " \t\n"))))
-
-    (forward-char 1)  ; Skip closing }
-    (nreverse entries)))
+(defun cider-format-map--parse-map (str)
+  "Parse map string STR into list of (key . value) cons cells."
+  (when (and (stringp str) (string-prefix-p "{" str) (string-suffix-p "}" str))
+    (with-temp-buffer
+      (insert str)
+      (goto-char (+ (point-min) 1))  ; Skip opening {
+      (let ((entries '()))
+        (while (and (not (eobp))
+                    (not (looking-at "}")))
+          (skip-chars-forward " \t\n")
+          (when (not (looking-at "}"))
+            (let* ((key (cider-format-map--read-token))
+                   (val (cider-format-map--read-value)))
+              (when (and key val)
+                (push (cons key val) entries))
+              ;; Skip comma and whitespace
+              (skip-chars-forward " \t\n")
+              (when (looking-at ",")
+                (forward-char 1)
+                (skip-chars-forward " \t\n")))))
+        (nreverse entries)))))
 
 (defun cider-format-map--read-token ()
-  "Read a single token (keyword, symbol, etc) and return as string."
+  "Read a keyword or symbol token and return as string."
   (skip-chars-forward " \t\n")
   (let ((start (point)))
     (skip-chars-forward "^] \t\n,{}\"")
-    (buffer-substring-no-properties start (point))))
+    (when (> (point) start)
+      (buffer-substring-no-properties start (point)))))
 
 (defun cider-format-map--read-value ()
-  "Read a value (could be map, string, or simple value) and return as string."
+  "Read a value (string, map, or simple value) and return as string."
   (skip-chars-forward " \t\n")
   (let ((start (point)))
     (cond
-     ;; String
+     ;; String value
      ((looking-at "\"")
       (forward-char 1)
-      (re-search-forward "\"" nil t)
-      (buffer-substring-no-properties start (point)))
+      (when (re-search-forward "\"" nil t)
+        (buffer-substring-no-properties start (point))))
 
      ;; Nested map
      ((looking-at "{")
-      (let ((map-start (point))
-            (depth 1))
+      (let ((depth 1))
         (forward-char 1)
         (while (and (> depth 0) (not (eobp)))
-          (skip-chars-forward "^{}\"")
           (cond
+           ;; Skip strings
            ((looking-at "\"")
             (forward-char 1)
             (re-search-forward "\"" nil t))
@@ -104,13 +101,16 @@ PREFIX-LENGTH is the length of any prefix like '=>' to align with."
             (forward-char 1))
            ((looking-at "}")
             (setq depth (1- depth))
+            (forward-char 1))
+           (t
             (forward-char 1))))
-        (buffer-substring-no-properties map-start (point))))
+        (buffer-substring-no-properties start (point))))
 
      ;; Simple value
      (t
       (skip-chars-forward "^] \t\n,{}")
-      (buffer-substring-no-properties start (point))))))
+      (when (> (point) start)
+        (buffer-substring-no-properties start (point)))))))
 
 (defun cider-format-result (orig-fun value &rest args)
   "Format VALUE if it's a map and inserting, then call ORIG-FUN with ARGS."

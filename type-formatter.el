@@ -43,10 +43,20 @@
     (goto-char start)
     (let ((indent (current-indentation))
           (entries nil)
-          (has-type nil))
+          (has-type nil)
+          (first-entry-on-same-line nil))
 
       (when type-formatter-debug
         (message "Processing map at %d-%d, indent=%d" start end indent))
+
+      ;; Check if first entry is on same line as opening brace
+      (save-excursion
+        (forward-char) ; Skip {
+        (let ((brace-line (line-number-at-pos)))
+          (skip-chars-forward " \t")
+          (when (and (not (looking-at "\n"))
+                    (looking-at ":"))
+            (setq first-entry-on-same-line (= (line-number-at-pos) brace-line)))))
 
       ;; Parse entries
       (forward-char) ; Skip {
@@ -101,13 +111,14 @@
           (message "Reformatting map with %d entries" (length entries)))
 
         (setq entries (reverse entries))
-        (let ((new-content (type-formatter--rebuild entries indent)))
+        (let ((new-content (type-formatter--rebuild entries indent first-entry-on-same-line)))
           (delete-region start end)
           (goto-char start)
           (insert new-content))))))
 
-(defun type-formatter--rebuild (entries indent)
-  "Rebuild map from ENTRIES with :type first."
+(defun type-formatter--rebuild (entries indent &optional same-line)
+  "Rebuild map from ENTRIES with :type first.
+If SAME-LINE is non-nil, put first entry on same line as opening brace."
   (let* ((type-entry (cl-find-if
                       (lambda (e) (string-match-p "^:type\\b" (car e)))
                       entries))
@@ -121,23 +132,52 @@
          (item-indent (make-string (+ indent 4) ?\s))
          (base-indent (make-string indent ?\s)))
 
-    ;; Opening brace
-    (push (concat base-indent "{") lines)
+    (if (and same-line (> (length ordered) 0))
+        ;; First entry on same line as {
+        (let ((first-entry (car ordered))
+              (rest-entries (cdr ordered)))
+          ;; Opening brace with first entry
+          (push (format "%s{%s %s%s"
+                       base-indent
+                       (car first-entry)
+                       (cdr first-entry)
+                       (if rest-entries "," ""))
+               lines)
 
-    ;; Entries
-    (let ((count (length ordered))
-          (i 0))
-      (dolist (entry ordered)
-        (setq i (1+ i))
-        (push (format "%s%s %s%s"
-                     item-indent
-                     (car entry)
-                     (cdr entry)
-                     (if (< i count) "," ""))
-             lines)))
+          ;; Rest of entries
+          (let ((count (length rest-entries))
+                (i 0))
+            (dolist (entry rest-entries)
+              (setq i (1+ i))
+              (push (format "%s%s %s%s"
+                           item-indent
+                           (car entry)
+                           (cdr entry)
+                           (if (< i count) "," ""))
+                   lines)))
 
-    ;; Closing brace
-    (push (concat base-indent "}") lines)
+          ;; Closing brace
+          (push (concat base-indent "}") lines))
+
+      ;; Traditional format - opening brace on its own line
+      (progn
+        ;; Opening brace
+        (push (concat base-indent "{") lines)
+
+        ;; Entries
+        (let ((count (length ordered))
+              (i 0))
+          (dolist (entry ordered)
+            (setq i (1+ i))
+            (push (format "%s%s %s%s"
+                         item-indent
+                         (car entry)
+                         (cdr entry)
+                         (if (< i count) "," ""))
+                 lines)))
+
+        ;; Closing brace
+        (push (concat base-indent "}") lines)))
 
     (mapconcat #'identity (reverse lines) "\n")))
 

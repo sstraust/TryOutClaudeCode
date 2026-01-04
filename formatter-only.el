@@ -1,13 +1,7 @@
-;;; cider-format-maps.el --- Format Clojure maps in CIDER output -*- lexical-binding: t; -*-
-
-(require 'cider-eval)
-
-(defvar cider-format-maps--inserting nil
-  "Non-nil when result is being inserted into buffer (C-u C-x C-e).")
+;;; formatter-only.el --- Just the formatter functions, no tests
 
 (defun cider-format-map (str prefix-length)
-  "Format map string STR with :type keys first and aligned indentation.
-PREFIX-LENGTH is the length of any prefix like '=>' to align with."
+  "Format map string STR with :type keys first and aligned indentation."
   (if (and (stringp str) (string-match-p "^{.*}$" str))
       (cider-format-map--format-string str prefix-length)
     str))
@@ -17,32 +11,25 @@ PREFIX-LENGTH is the length of any prefix like '=>' to align with."
   (let ((entries (cider-format-map--parse-map str)))
     (if (not entries)
         str
-      ;; Separate :type entries from others, preserving order
       (let* ((type-entries (seq-filter (lambda (e) (string-prefix-p ":type" (car e))) entries))
              (other-entries (seq-filter (lambda (e) (not (string-prefix-p ":type" (car e)))) entries))
              (sorted-entries (append type-entries other-entries))
              (col (1+ base-indent))
              (result (list "{")))
-
-        ;; Format each entry
         (let ((first t))
           (dolist (entry sorted-entries)
             (unless first
               (push ",\n" result)
               (push (make-string col ?\s) result))
             (setq first nil)
-
             (let* ((key (car entry))
                    (val (cdr entry))
-                   ;; Recursively format nested maps
                    (formatted-val (if (string-prefix-p "{" val)
                                       (cider-format-map--format-string val (+ col (length key) 1))
                                     val)))
-              ;; Push in reverse order: key, space, val
               (push key result)
               (push " " result)
               (push formatted-val result))))
-
         (push "}" result)
         (apply #'concat (nreverse result))))))
 
@@ -51,7 +38,7 @@ PREFIX-LENGTH is the length of any prefix like '=>' to align with."
   (when (and (stringp str) (string-prefix-p "{" str) (string-suffix-p "}" str))
     (with-temp-buffer
       (insert str)
-      (goto-char (+ (point-min) 1))  ; Skip opening {
+      (goto-char (+ (point-min) 1))
       (let ((entries '()))
         (while (and (not (eobp))
                     (not (looking-at "}")))
@@ -61,7 +48,6 @@ PREFIX-LENGTH is the length of any prefix like '=>' to align with."
                    (val (cider-format-map--read-value)))
               (when (and key val)
                 (push (cons key val) entries))
-              ;; Skip comma and whitespace
               (skip-chars-forward " \t\n")
               (when (looking-at ",")
                 (forward-char 1)
@@ -81,19 +67,15 @@ PREFIX-LENGTH is the length of any prefix like '=>' to align with."
   (skip-chars-forward " \t\n")
   (let ((start (point)))
     (cond
-     ;; String value
      ((looking-at "\"")
       (forward-char 1)
       (when (re-search-forward "\"" nil t)
         (buffer-substring-no-properties start (point))))
-
-     ;; Nested map
      ((looking-at "{")
       (let ((depth 1))
         (forward-char 1)
         (while (and (> depth 0) (not (eobp)))
           (cond
-           ;; Skip strings
            ((looking-at "\"")
             (forward-char 1)
             (re-search-forward "\"" nil t))
@@ -106,26 +88,9 @@ PREFIX-LENGTH is the length of any prefix like '=>' to align with."
            (t
             (forward-char 1))))
         (buffer-substring-no-properties start (point))))
-
-     ;; Simple value
      (t
       (skip-chars-forward "^] \t\n,{}")
       (when (> (point) start)
         (buffer-substring-no-properties start (point)))))))
 
-(defun cider-format-result (orig-fun value &rest args)
-  "Format VALUE if it's a map and inserting, then call ORIG-FUN with ARGS."
-  (let ((formatted (when cider-format-maps--inserting
-                     (cider-format-map value 3))))  ; 3 for "=> "
-    (apply orig-fun (or formatted value) args)))
-
-(defun cider-format-track-insert (orig-fun &rest args)
-  "Track when CIDER is inserting results with ORIG-FUN and ARGS."
-  (let ((cider-format-maps--inserting current-prefix-arg))
-    (apply orig-fun args)))
-
-(advice-add 'cider--display-interactive-eval-result :around #'cider-format-result)
-(advice-add 'cider-eval-last-sexp :around #'cider-format-track-insert)
-
-(provide 'cider-format-maps)
-;;; cider-format-maps.el ends here
+(provide 'formatter-only)

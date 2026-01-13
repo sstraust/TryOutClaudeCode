@@ -1,0 +1,10 @@
+;; Test input 4: Compact format from screenshot
+(>Rectangle :side1 1 :side2 3
+            :pos (>Position :x 1 :y 2))
+=> {:deft.deft-test/side1 1,
+    :deft.deft-test/side2 3,
+    :deft.deft-test/pos {
+        :deft.deft-test/x 1,
+        :deft.deft-test/y 2,
+        :type :deft.deft-test/Position},
+    :type :deft.deft-test/Rectangle}

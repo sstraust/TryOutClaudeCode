@@ -87,6 +87,118 @@ def check_feed_paywall(feed_article_obj):
         pass
     return False
 
+def check_content_availability(soup, min_content_length=400):
+    """
+    Check if article content is actually present on the page.
+
+    Detects "soft" paywalls where content is missing or truncated.
+    Returns True if content appears to be missing/limited (likely paywalled).
+
+    Args:
+        soup: BeautifulSoup object
+        min_content_length: Minimum character count for article content (default 400)
+    """
+    try:
+        # Common article content selectors
+        article_selectors = [
+            'article',
+            '[class*="article-body"]',
+            '[class*="article-content"]',
+            '[class*="story-body"]',
+            '[class*="entry-content"]',
+            '[id*="article-body"]',
+            '[id*="article-content"]',
+            '[class*="post-content"]',
+            'main article',
+            '.article p',
+            'article p'
+        ]
+
+        max_text_length = 0
+        found_content = False
+
+        # Try each selector
+        for selector in article_selectors:
+            try:
+                elements = soup.select(selector)
+                for element in elements:
+                    # Clone the element to avoid modifying the original
+                    element_copy = BeautifulSoup(str(element), 'html.parser')
+
+                    # Get text content, excluding script/style tags
+                    for script in element_copy.find_all(['script', 'style']):
+                        script.decompose()
+
+                    text = element_copy.get_text(separator=' ', strip=True)
+                    text_length = len(text)
+
+                    if text_length > max_text_length:
+                        max_text_length = text_length
+                        found_content = True
+            except Exception:
+                continue
+
+        # If no article content found, it might be missing
+        # But only flag if the page has subscription-related language
+        if not found_content:
+            full_text = soup.get_text().lower()
+
+            # Check for negative subscription language first (indicating FREE)
+            negative_phrases = ['no subscription', 'free to read', 'free article']
+            if any(phrase in full_text for phrase in negative_phrases):
+                return False
+
+            # Check for positive subscription hints
+            subscription_hints = [
+                'subscribe to', 'subscription required', 'sign in to read',
+                'login to read', 'member only', 'premium content'
+            ]
+            # If page has subscription language but no article content, likely paywalled
+            if any(hint in full_text for hint in subscription_hints):
+                return True
+            # Otherwise fail open (assume content is available)
+            return False
+
+        # Get full page text for truncation phrase checks
+        full_text = soup.get_text().lower()
+
+        # Look for strong truncation indicators (subscription prompts)
+        strong_indicators = [
+            'subscribe to read',
+            'sign in to read',
+            'login to read',
+            'subscription required',
+            'this article is for subscribers',
+            'become a member to',
+            'subscribe for full access'
+        ]
+
+        # If we have strong indicators AND short content, it's likely paywalled
+        has_strong_indicator = any(phrase in full_text for phrase in strong_indicators)
+
+        if has_strong_indicator and max_text_length < 600:
+            return True
+
+        # Content is very short AND has weaker subscription hints
+        if max_text_length < min_content_length:
+            weak_indicators = [
+                'continue reading',
+                'subscribe to',
+                'become a member'
+            ]
+            has_weak_indicator = any(phrase in full_text for phrase in weak_indicators)
+
+            # Only flag as paywalled if we have both short content AND subscription language
+            if has_weak_indicator:
+                return True
+
+        # Content appears to be available
+        return False
+
+    except Exception:
+        # If check fails, assume content is available (fail open)
+        return False
+
 def parse_paywall_status(basic_info, page_data, existing_article, feed_article_obj):
     """
     Detect if article is paywalled.
@@ -117,6 +229,10 @@ def parse_paywall_status(basic_info, page_data, existing_article, feed_article_o
 
         if check_paywall_elements(soup):
             return {"is_paywalled": True, "detection_method": "css_class"}
+
+        # Check if article content is actually available
+        if check_content_availability(soup):
+            return {"is_paywalled": True, "detection_method": "content_unavailable"}
 
         return {"is_paywalled": False}
 
